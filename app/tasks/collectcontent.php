@@ -22,16 +22,41 @@ class CollectContent
             }
 
             $multi_parameters = [];
+            $maxDepth = 3;
 
             foreach ($repos as $domainKey => $rootPath) {
+                // Prepare filtered iterator with max depth
+                $directoryIterator = new \RecursiveDirectoryIterator($rootPath, \FilesystemIterator::SKIP_DOTS);
+
+                $filteredIterator = new \RecursiveCallbackFilterIterator(
+                    $directoryIterator,
+                    function ($file, $key, $iterator) use ($rootPath, $maxDepth) {
+                        $relativePath = str_replace($rootPath, '', $file->getPathname());
+                        $depth = substr_count($relativePath, DIRECTORY_SEPARATOR);
+                        return $depth <= $maxDepth;
+                    }
+                );
+
                 $iterator = new \RecursiveIteratorIterator(
-                    new \RecursiveDirectoryIterator($rootPath),
+                    $filteredIterator,
                     \RecursiveIteratorIterator::LEAVES_ONLY
                 );
 
                 foreach ($iterator as $file) {
-                    if ($file->isFile() && $file->getFilename() === 'index.html') {
+                    if ($file->getFilename() === 'index.html') {
                         $path = $file->getRealPath();
+
+                        // Shell-level check using `find` to ensure it's a regular file
+                        $escapedPath = escapeshellarg($path);
+                        $command = "find {$escapedPath} -maxdepth 0 -xtype f";
+                        exec($command, $output, $status);
+
+                        if ($status !== 0 || empty($output)) {
+                            // Skip invalid or non-regular files
+                            continue;
+                        }
+
+                        // Read and process the HTML file
                         $html = file_get_contents($path);
                         $html = mb_convert_encoding($html, 'HTML-ENTITIES', 'auto');
 
